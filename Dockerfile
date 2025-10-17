@@ -1,63 +1,35 @@
-# Use PHP 8.3 (8.4 not supported yet)
-FROM php:8.3-apache@sha256:6be4ef702b2dd05352f7e5fe14667696a4ad091c9d2ad9083becbee4300dc3b1
+FROM alpine:3.22
 
-# Install system dependencies and PHP extensions in one layer
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    git \
-    unzip \
-    libicu-dev \
-    inkscape \
-    fonts-dejavu-core \
-    curl \
-    && docker-php-ext-configure intl \
-    && docker-php-ext-install intl \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
 
-# Install Composer
-COPY --from=composer/composer:latest-bin@sha256:c9bda63056674836406cacfbbdd8ef770fb4692ac419c967034225213c64e11b /composer /usr/bin/composer
+RUN apk update \
+    && apk add --no-cache \
+        inkscape \
+        php \
+        php-curl \
+        php-intl \
+        php-phar \
+        php-iconv \
+        php-openssl \
+    && apk add gnu-libiconv=1.15-r3 --update --no-cache --repository http://dl-cdn.alpinelinux.org/alpine/v3.13/community/
 
-# Set working directory
-WORKDIR /var/www/html
+ENV LD_PRELOAD="/usr/lib/preloadable_libiconv.so php"
 
-# Copy composer files and install dependencies
-COPY composer.json composer.lock ./
-COPY src/ ./src/
-RUN composer install --no-dev --optimize-autoloader --no-scripts
+COPY . .
 
-# Configure Apache to serve from src/ directory and pass environment variables
-RUN a2enmod rewrite headers && \
-    echo 'ServerTokens Prod\n\
-ServerSignature Off\n\
-PassEnv TOKEN\n\
-<VirtualHost *:80>\n\
-    ServerAdmin webmaster@localhost\n\
-    DocumentRoot /var/www/html/src\n\
-    <Directory /var/www/html/src>\n\
-        Options -Indexes\n\
-        AllowOverride None\n\
-        Require all granted\n\
-        Header always set Access-Control-Allow-Origin "*"\n\
-        Header always set Content-Type "image/svg+xml" "expr=%{REQUEST_URI} =~ m#\\.svg$#i"\n\
-        Header always set Content-Security-Policy "default-src 'none'; style-src 'unsafe-inline'; img-src data:;" "expr=%{REQUEST_URI} =~ m#\\.svg$#i"\n\
-        Header always set Referrer-Policy "no-referrer-when-downgrade"\n\
-        Header always set X-Content-Type-Options "nosniff"\n\
-    </Directory>\n\
-    ErrorLog ${APACHE_LOG_DIR}/error.log\n\
-    CustomLog ${APACHE_LOG_DIR}/access.log combined\n\
-</VirtualHost>' > /etc/apache2/sites-available/000-default.conf
+RUN --mount=type=bind,from=composer:2,source=/usr/bin/composer,target=/usr/bin/composer \
+    composer install --no-interaction --prefer-dist --optimize-autoloader --no-dev
 
-# Set secure permissions
-RUN chown -R www-data:www-data /var/www/html && \
-    find /var/www/html -type d -exec chmod 755 {} \; && \
-    find /var/www/html -type f -exec chmod 644 {} \;
+RUN echo "*/30 * * * * php /app/scripts/update-cache.php > /dev/null 2>&1" > /etc/crontabs/nobody
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost/demo/ || exit 1
+RUN chmod +x docker-entrypoint.sh \
+    && chown nobody:nogroup . \
+    && chmod 700 . \
+    && mkdir -p /var/cache/github-stats \
+    && chown nobody:nogroup /var/cache/github-stats
 
-# Expose port
-EXPOSE 80
+USER nobody:nogroup
 
-# Start Apache
-CMD ["apache2-foreground"]
+EXPOSE 8000
+
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
