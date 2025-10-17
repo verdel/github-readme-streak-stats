@@ -13,7 +13,7 @@ $dotenv->safeLoad();
 
 // if environment variables are not loaded, display error
 if (!isset($_SERVER["TOKEN"])) {
-    $message = file_exists(dirname(__DIR__ . "../.env", 1))
+    $message = file_exists(dirname(__DIR__ . ".env", 1))
         ? "Missing token in config. Check Contributing.md for details."
         : ".env was not found. Check Contributing.md for details.";
     renderOutput($message, 500);
@@ -24,6 +24,15 @@ $cacheMinutes = 3 * 60 * 60;
 header("Expires: " . gmdate("D, d M Y H:i:s", time() + $cacheMinutes) . " GMT");
 header("Last-Modified: " . gmdate("D, d M Y H:i:s") . " GMT");
 header("Cache-Control: public, max-age=$cacheMinutes");
+
+// Set security and content type headers
+header("Access-Control-Allow-Origin: *");
+if (preg_match('/\.svg$/i', $_SERVER['REQUEST_URI'])) {
+    header("Content-Type: image/svg+xml");
+    header("Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; img-src data:;");
+}
+header("Referrer-Policy: no-referrer-when-downgrade");
+header("X-Content-Type-Options: nosniff");
 
 // redirect to demo site if user is not given
 if (!isset($_REQUEST["user"])) {

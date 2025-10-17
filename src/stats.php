@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+require_once __DIR__ . '/cache.php';
+
 /**
  * Build a GraphQL query for a contribution graph
  *
@@ -121,6 +123,23 @@ function executeContributionGraphRequests(string $user, array $years): array
  */
 function getContributionGraphs(string $user, ?int $startingYear = null): array
 {
+    if (!Cache::isWhitelisted($user)) {
+        throw new InvalidArgumentException("User not in whitelist", 403);
+    }
+
+    $cached = Cache::get($user);
+    if ($cached !== null) {
+        if ($startingYear !== null) {
+            $filtered = array_filter(
+                $cached,
+                fn($yearKey) => intval($yearKey) >= $startingYear,
+                ARRAY_FILTER_USE_KEY
+            );
+            return $filtered;
+        }
+        return $cached;
+    }
+
     // get the list of years the user has contributed and the current year's contribution graph
     $currentYear = intval(date("Y"));
     $responses = executeContributionGraphRequests($user, [$currentYear]);
@@ -148,6 +167,7 @@ function getContributionGraphs(string $user, ?int $startingYear = null): array
     }
     // get the contribution graphs for the previous years
     $responses += executeContributionGraphRequests($user, $yearsToRequest);
+    Cache::set($user, $responses);
     return $responses;
 }
 
